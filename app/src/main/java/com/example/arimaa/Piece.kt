@@ -15,7 +15,9 @@ enum class Player {
 
 class Piece(val type: PieceType, val player: Player) {
     // Define the strength of each piece
+    var frozen: Boolean = false
     val strength: Int
+
         get() = when (type) {
             PieceType.ELEPHANT -> 5
             PieceType.CAMEL -> 4

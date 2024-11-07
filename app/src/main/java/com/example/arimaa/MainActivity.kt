@@ -19,10 +19,7 @@ import android.widget.Toast
 import com.example.arimaa.ui.theme.ArimaaTheme
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.Modifier
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.background
-import androidx.compose.material3.*
+import androidx. compose. material3.CheckboxDefaults. colors
 
 class MainActivity : ComponentActivity() {
     private lateinit var arimaaBoard: ArimaaBoard
@@ -30,8 +27,9 @@ class MainActivity : ComponentActivity() {
     private var movesLeft by mutableStateOf(4)
     private var selectedCell by mutableStateOf<Pair<Int, Int>?>(null)
     private var hasMoved by mutableStateOf(false)
-    private var isGameActive by mutableStateOf(false) // Track if the game is active
-    private var showInstructions by mutableStateOf(false) // Track if instructions should be shown
+    private var isGameActive by mutableStateOf(false)
+    private var showInstructions by mutableStateOf(false)
+    val brownColor = Color(0x8B4513)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -41,15 +39,14 @@ class MainActivity : ComponentActivity() {
             ArimaaTheme {
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
                     if (showInstructions) {
-                        InstructionsScreen(onBack = { showInstructions = false }) // Show instructions screen
+                        InstructionsScreen(onBack = { showInstructions = false })
                     } else if (isGameActive) {
-                        GameScreen(innerPadding = innerPadding) // Game screen
+                        GameScreen(innerPadding = innerPadding)
                     } else {
-                        HomeScreen(onStartGame = {
-                            startGame() // Start the game when button is clicked
-                        }, onShowInstructions = {
-                            showInstructions = true // Show instructions when button is clicked
-                        })
+                        HomeScreen(
+                            onStartGame = { startGame() },
+                            onShowInstructions = { showInstructions = true }
+                        )
                     }
                 }
             }
@@ -57,26 +54,56 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun startGame() {
-        arimaaBoard = ArimaaBoard() // Initialize the board
-        isGameActive = true // Set the game as active
+        arimaaBoard = ArimaaBoard()
+        isGameActive = true
         currentPlayer = Player.GOLD
         movesLeft = 4
         selectedCell = null
         hasMoved = false
     }
 
+    private fun checkWinCondition() {
+        // Check if any of the current player's rabbits reached the opponent's home row
+        for (y in arimaaBoard.board.indices) {
+            for (x in arimaaBoard.board[y].indices) {
+                val piece = arimaaBoard.board[y][x].piece
+                if (piece != null && piece.type == PieceType.RABBIT) {
+                    if ((piece.player == Player.GOLD && y == 0) || (piece.player == Player.SILVER && y == 7)) {
+                        // A rabbit has reached the opponent's home row
+                        showWinMessage(piece.player)
+                        return
+                    }
+                }
+            }
+        }
+    }
+
+    private fun showWinMessage(winningPlayer: Player) {
+        // Show the winner message
+        Toast.makeText(this, "${winningPlayer.name} wins!", Toast.LENGTH_LONG).show()
+        isGameActive = false
+    }
+
     @Composable
     fun GameScreen(innerPadding: PaddingValues) {
         var validMoves by remember { mutableStateOf<List<Pair<Int, Int>>>(emptyList()) }
+        var showCaptureDialog by remember { mutableStateOf(false) }
+        var trapCellPosition by remember { mutableStateOf<Pair<Int, Int>?>(null) }
+        var strongerPieceCanCapture by remember { mutableStateOf(false) }
 
-        Column(modifier = Modifier.padding(innerPadding)) {
+        val gameScreenBackgroundColor = Color(0xFFBFA38E) // Light brown color for the game screen
+
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .background(gameScreenBackgroundColor) // Set the background color of the screen
+        ) {
             Text("Arimaa Game", style = MaterialTheme.typography.headlineSmall)
             Spacer(modifier = Modifier.height(8.dp))
 
-            // Show moves left
             Text("Moves Left: $movesLeft", style = MaterialTheme.typography.bodyMedium)
 
-            // Highlight the current player's turn
             Text(
                 text = "${currentPlayer.name}'s Turn",
                 style = MaterialTheme.typography.bodyMedium,
@@ -105,16 +132,17 @@ class MainActivity : ComponentActivity() {
                                     .aspectRatio(1f)
                                     .background(
                                         color = when {
-                                            isValidMove -> Color.Red.copy(alpha = 0.5f)
+                                            arimaaBoard.isTrapCell(x, y) -> Color.Black.copy(alpha = 0.7f)
+                                            isValidMove -> Color.Red.copy(alpha = .5f)
                                             (x + y) % 2 == 0 -> Color.White
-                                            else -> Color.Gray
+                                            else -> Color(0xFF8B4513)
                                         }
                                     )
                                     .clickable {
+
                                         val piece = arimaaBoard.board[y][x].piece
 
                                         if (selectedCell != null && piece != null && piece.player == currentPlayer) {
-                                            // Change selection to the new piece
                                             selectedCell = Pair(x, y)
                                             validMoves = getValidMoves(x, y, piece)
                                         } else if (selectedCell == null) {
@@ -125,14 +153,30 @@ class MainActivity : ComponentActivity() {
                                         } else {
                                             val (startX, startY) = selectedCell!!
                                             if (validMoves.contains(Pair(x, y))) {
-                                                // Move the piece
-                                                if (arimaaBoard.movePiece(startX, startY, x, y, currentPlayer)) {
+                                                val isTrapCell = arimaaBoard.isTrapCell(x, y)
+                                                val targetCell = arimaaBoard.board[y][x]
+                                                val targetPiece = targetCell.piece
+
+                                                if (isTrapCell && targetPiece != null && targetPiece.player != currentPlayer) {
+                                                    // Check if the moving piece is stronger than the piece in the trap cell
+                                                    val movingPiece = arimaaBoard.board[startY][startX].piece
+                                                    if (movingPiece != null && movingPiece.strength > targetPiece.strength) {
+                                                        // Set trap position and allow capture
+                                                        trapCellPosition = Pair(x, y)
+                                                        showCaptureDialog = true
+                                                        strongerPieceCanCapture = true
+                                                    } else {
+                                                        // Do not allow capture if the moving piece is weaker
+                                                        strongerPieceCanCapture = false
+                                                    }
+                                                } else if (arimaaBoard.movePiece(startX, startY, x, y, currentPlayer)) {
                                                     movesLeft--
-                                                    hasMoved = true // Mark that a move has been made
+                                                    hasMoved = true
+
+                                                    checkWinCondition()  // Check for win after each move
 
                                                     if (movesLeft == 0) {
-                                                        movesLeft = 4
-                                                        currentPlayer = if (currentPlayer == Player.GOLD) Player.SILVER else Player.GOLD
+                                                        endTurn()
                                                     }
 
                                                     selectedCell = null
@@ -178,107 +222,173 @@ class MainActivity : ComponentActivity() {
                 Button(
                     onClick = {
                         if (!hasMoved) {
-                            // Show a message that a move must be made first
                             Toast.makeText(this@MainActivity, "You must make at least one move before ending your turn.", Toast.LENGTH_SHORT).show()
                         } else {
-                            // End turn logic
                             movesLeft = 4
                             selectedCell = null
                             validMoves = emptyList()
-                            hasMoved = false // Reset the move flag
+                            hasMoved = false
                             currentPlayer = if (currentPlayer == Player.GOLD) Player.SILVER else Player.GOLD
                         }
-                    },
-                    modifier = Modifier.padding(8.dp)
+                    },colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFF8B4513), // Dark brown color for the button background
+                        contentColor = Color.White // White text color
+                    ),
+
+                    modifier = Modifier.weight(1f)
                 ) {
                     Text("End Turn")
                 }
 
                 Button(
                     onClick = {
-                        resetGame() // Call the reset function
-                    },
-                    modifier = Modifier.padding(8.dp)
+                        // Quit the game and return to home screen
+                        isGameActive = false
+                        Toast.makeText(this@MainActivity, "Game has been quit.", Toast.LENGTH_SHORT).show()
+                    },colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFF8B4513), // Dark brown color for the button background
+                        contentColor = Color.White // White text color
+                    ),
+
+                    modifier = Modifier.weight(1f)
                 ) {
-                    Text("Reset Game")
+                    Text("Quit Game")
                 }
             }
         }
     }
 
+
+    @Composable
+    fun GameOverDialog(winner: Player) {
+        AlertDialog(
+            onDismissRequest = { /* Handle dismiss */ },
+            title = { Text("Game Over!") },
+            text = { Text("${winner.name} wins!") },
+            confirmButton = {
+                Button(onClick = { /* Handle restart or exit */ }) {
+                    Text("Ok")
+                }
+            }
+        )
+    }
+
+
+
     private fun getValidMoves(x: Int, y: Int, piece: Piece): List<Pair<Int, Int>> {
         val moves = mutableListOf<Pair<Int, Int>>()
-        val directions = listOf(
-            Pair(0, -1), // Up
-            Pair(0, 1),  // Down
-            Pair(-1, 0), // Left
-            Pair(1, 0)   // Right
-        )
+        val directions = listOf(Pair(0, -1), Pair(0, 1), Pair(-1, 0), Pair(1, 0))
 
-        // Determine the maximum movement distance for each piece type
         val maxMoveDistance = when (piece.type) {
-            PieceType.ELEPHANT, PieceType.CAMEL -> 2 // Elephant and Camel can move up to 2 spaces
-            else -> 1 // Other pieces can move 1 space
+            PieceType.ELEPHANT, PieceType.CAMEL -> 2
+            else -> 1
         }
 
         for ((dx, dy) in directions) {
-            for (distance in 1..maxMoveDistance) { // Loop through the possible distances
+            for (distance in 1..maxMoveDistance) {
                 val newX = x + dx * distance
                 val newY = y + dy * distance
 
                 if (newX in 0..7 && newY in 0..7) {
                     val targetCell = arimaaBoard.board[newY][newX]
 
-                    // Ruling out backward movement for rabbits
                     if (piece.type == PieceType.RABBIT && ((piece.player == Player.GOLD && dy == -1) || (piece.player == Player.SILVER && dy == 1))) break
 
                     if (targetCell.piece == null || targetCell.piece?.player != piece.player) {
                         moves.add(Pair(newX, newY))
                     }
 
-                    // If a piece is found, stop checking further in this direction
                     if (targetCell.piece != null) {
                         break
                     }
                 } else {
-                    break // Out of bounds
+                    break
                 }
             }
         }
-
         return moves
     }
 
+    private fun endTurn() {
+        if (hasMoved) {
+            movesLeft = 4
+            selectedCell = null
+            hasMoved = false
+            currentPlayer = if (currentPlayer == Player.GOLD) Player.SILVER else Player.GOLD
+        }
+    }
+
     private fun resetGame() {
-        // Reset the game state
         arimaaBoard = ArimaaBoard()
         currentPlayer = Player.GOLD
         movesLeft = 4
         selectedCell = null
         hasMoved = false
-        isGameActive = false // Set game to inactive
+        isGameActive = false
     }
 
     @Composable
     fun HomeScreen(onStartGame: () -> Unit, onShowInstructions: () -> Unit) {
-        Column(
+        Box(
             modifier = Modifier
-                .fillMaxSize()
-                .padding(16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
+                .fillMaxSize() // Ensures the Box takes up the entire screen
+                .background(Color(0xFFD2B48C)) // Light Brown color background (Hex code for light brown)
         ) {
-            Text("Welcome to Arimaa!", style = MaterialTheme.typography.headlineMedium)
-            Spacer(modifier = Modifier.height(24.dp))
-
-            Button(onClick = onStartGame) {
-                Text("Start Game")
-            }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            Button(onClick = onShowInstructions) {
-                Text("Instructions")
+            Image(
+                painter = painterResource(id = R.drawable.front_s), // Your background image
+                contentDescription = null,
+                modifier = Modifier
+                    .fillMaxSize() // Make the image fill the entire screen
+                    .align(Alignment.Center) // Align the image at the center (optional)
+            )
+            // UI elements on top of the light brown background
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                Text(
+                    text = "Welcome to Arimaa!",
+                    style = MaterialTheme.typography.headlineLarge,
+                    textAlign = TextAlign.Center,
+                    color = Color.Black // Make sure the text is visible against the light brown background
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                Button(
+                    onClick = onStartGame,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFF8B4513), // Dark brown color for the button background
+                        contentColor = Color.White // White text color
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth() // Ensures button takes up full width
+                        .padding(horizontal = 16.dp) // Optional: Add some horizontal padding for better appearance
+                ) {
+                    Text(
+                        text = "Start Game",
+                        style = MaterialTheme.typography.bodyLarge, // Optional: Customize text style
+                        textAlign = TextAlign.Center // Ensure text is centered in the button
+                    )
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                Button(
+                    onClick = onShowInstructions,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFF8B4513), // Dark brown color for the button background
+                        contentColor = Color.White // White text color
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth() // Ensures button takes up full width
+                        .padding(horizontal = 16.dp) // Optional: Add some horizontal padding for better appearance
+                ) {
+                    Text(
+                        text = "Instructions",
+                        style = MaterialTheme.typography.bodyLarge, // Optional: Customize text style
+                        textAlign = TextAlign.Center // Ensure text is centered in the button
+                    )
+                }
             }
         }
     }
